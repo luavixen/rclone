@@ -55,7 +55,9 @@ type Object struct {
 
 type emptyReader struct{}
 
-func (*emptyReader) Read(_ []byte) (int, error) { return 0, io.EOF }
+func (*emptyReader) Read(_ []byte) (int, error) {
+	return 0, io.EOF
+}
 
 func shouldRetry(err error) bool {
 	return fserrors.ShouldRetry(err)
@@ -116,8 +118,14 @@ func withOptions(req *http.Request, opts []fs.OpenOption) {
 }
 
 func readBody(res *http.Response) ([]byte, error) {
-	defer res.Body.Close()
-	return ioutil.ReadAll(res.Body)
+	b, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := res.Body.Close(); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func (f *Fs) sendRequest(req *http.Request, result api.ResultLike) error {
@@ -260,26 +268,26 @@ func (f *Fs) apiUpload(ctx context.Context, path string, in io.Reader, opts []fs
 	mp := multipart.NewWriter(bw)
 
 	go func() {
-		defer bw.Close()
-		defer mp.Close()
+		defer func() { _ = bw.Close() }()
+		defer func() { _ = mp.Close() }()
 
 		p, err := mp.CreateFormFile(path, path)
 		if err != nil {
-			bw.CloseWithError(err)
+			_ = bw.CloseWithError(err)
 			return
 		}
 
 		_, err = io.Copy(p, in)
 		if err != nil {
-			bw.CloseWithError(err)
+			_ = bw.CloseWithError(err)
 			return
 		}
 	}()
 
 	go func() {
 		<-ctx.Done()
-		bw.CloseWithError(ctx.Err())
-		mp.Close()
+		_ = bw.CloseWithError(ctx.Err())
+		_ = mp.Close()
 	}()
 
 	req, err := f.newRequest(ctx, "POST", "https://neocities.org/api/upload")
