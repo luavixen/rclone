@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -53,6 +54,7 @@ type Object struct {
 }
 
 type emptyReader struct{}
+
 func (*emptyReader) Read(_ []byte) (int, error) { return 0, io.EOF }
 
 func shouldRetry(err error) bool {
@@ -98,7 +100,7 @@ func withParams(req *http.Request, values url.Values) {
 	body := []byte(values.Encode())
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
-	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.Body = ioutil.NopCloser(bytes.NewReader(body))
 }
 
 func withOptions(req *http.Request, opts []fs.OpenOption) {
@@ -115,7 +117,7 @@ func withOptions(req *http.Request, opts []fs.OpenOption) {
 
 func readBody(res *http.Response) ([]byte, error) {
 	defer res.Body.Close()
-	return io.ReadAll(res.Body)
+	return ioutil.ReadAll(res.Body)
 }
 
 func (f *Fs) sendRequest(req *http.Request, result api.ResultLike) error {
@@ -342,7 +344,7 @@ func (f *Fs) cacheInvalidate(pathDir string) {
 }
 
 func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
-	files, err := f.apiList(ctx, "/" + path)
+	files, err := f.apiList(ctx, "/"+path)
 	if err != nil {
 		return nil, err
 	}
