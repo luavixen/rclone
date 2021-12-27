@@ -407,15 +407,12 @@ func (f *Fs) performUpload(ctx context.Context, path string, in io.Reader, opts 
 	return nil
 }
 
-func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
+func (f *Fs) findFile(ctx context.Context, path string) (*api.File, error) {
 	if path == "" {
 		return nil, fs.ErrorIsDir
 	}
 	if file := f.cacheLookup(path); file != nil {
-		if file.IsDirectory {
-			return nil, fs.ErrorIsDir
-		}
-		return &Object{f, file}, nil
+		return file, nil
 	}
 	files, err := f.performList(ctx, pathParent(path))
 	if err != nil {
@@ -423,13 +420,21 @@ func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
 	}
 	for _, file := range files {
 		if file.Path == path {
-			if file.IsDirectory {
-				return nil, fs.ErrorIsDir
-			}
-			return &Object{f, file}, nil
+			return file, nil
 		}
 	}
 	return nil, fs.ErrorObjectNotFound
+}
+
+func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
+	file, err := f.findFile(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if file.IsDirectory {
+		return nil, fs.ErrorIsDir
+	}
+	return &Object{f, file}, nil
 }
 
 func init() {
@@ -737,10 +742,19 @@ func (o *Object) Open(ctx context.Context, opts ...fs.OpenOption) (io.ReadCloser
 	return o.fs.hostDownload(ctx, o.file.Path, opts)
 }
 
-func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, opts ...fs.OpenOption) error {
-	return o.fs.performUpload(ctx, o.file.Path, in, opts)
-}
-
 func (o *Object) Remove(ctx context.Context) error {
 	return o.fs.performDelete(ctx, o.file.Path)
+}
+
+func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, opts ...fs.OpenOption) error {
+	err := o.fs.performUpload(ctx, o.file.Path, in, opts)
+	if err != nil {
+		return err
+	}
+	file, err := o.fs.findFile(ctx, o.file.Path)
+	if err != nil {
+		return err
+	}
+	o.file = file
+	return nil
 }
