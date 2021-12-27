@@ -254,6 +254,9 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 			"filenames[]": {path},
 		})
 		if err := f.sendRequest(req, nil); err != nil {
+			if api, ok := err.(*api.Error); ok && api.Kind == "missing_files" {
+				return false, nil
+			}
 			return shouldRetry(err), err
 		}
 		return false, nil
