@@ -14,7 +14,12 @@ func (ts *Timestamp) MarshalJSON() ([]byte, error) {
 }
 
 func (ts *Timestamp) UnmarshalJSON(data []byte) error {
-	t, err := time.Parse(timeFormat, string(data))
+	s := string(data)
+	if s == "" || s == "null" {
+		*ts = Timestamp(time.Now())
+		return nil
+	}
+	t, err := time.Parse(timeFormat, s)
 	if err != nil {
 		return err
 	}
