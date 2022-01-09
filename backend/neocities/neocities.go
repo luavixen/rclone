@@ -526,15 +526,18 @@ func init() {
 			{
 				Hide: fs.OptionHideConfigurator,
 				Name: "username",
+				Help: "Account username or associated email address.",
 			},
 			{
 				Hide:       fs.OptionHideConfigurator,
 				Name:       "password",
+				Help:       "Account password.",
 				IsPassword: true,
 			},
 			{
 				Hide:       fs.OptionHideConfigurator,
 				Name:       "api_key",
+				Help:       "Neocities API key.",
 				IsPassword: true,
 			},
 		},
@@ -558,7 +561,7 @@ func Config(ctx context.Context, name string, m configmap.Mapper, config fs.Conf
 				},
 				{
 					Value: "api_key",
-					Help:  "API key/token authentication. See: https://neocities.org/api",
+					Help:  "API key/token authentication. See: https://neocities.org/api.",
 				},
 			},
 		)
