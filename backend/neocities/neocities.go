@@ -462,7 +462,7 @@ func (f *Fs) performMkdir(ctx context.Context, path string) error {
 	if err := f.apiDelete(ctx, pathTemp); err != nil {
 		return err
 	}
-	f.cacheInvalidate(pathParent(path))
+	f.cacheInvalidate(path)
 	return nil
 }
 
@@ -473,12 +473,8 @@ func (f *Fs) performRename(ctx context.Context, pathOld, pathNew string) error {
 	if err := f.apiRename(ctx, pathOld, pathNew); err != nil {
 		return err
 	}
-	pathOldParent := pathParent(pathOld)
-	pathNewParent := pathParent(pathNew)
-	f.cacheInvalidate(pathOldParent)
-	if pathOldParent != pathNewParent {
-		f.cacheInvalidate(pathNewParent)
-	}
+	f.cacheInvalidate(pathOld)
+	f.cacheInvalidate(pathNew)
 	return nil
 }
 
@@ -488,7 +484,7 @@ func (f *Fs) performDelete(ctx context.Context, path string) error {
 	if err := f.apiDelete(ctx, path); err != nil {
 		return err
 	}
-	f.cacheInvalidate(pathParent(path))
+	f.cacheInvalidate(path)
 	return nil
 }
 
@@ -499,7 +495,7 @@ func (f *Fs) performUpload(ctx context.Context, path string, in io.Reader, opts 
 	if err := f.apiUpload(ctx, path, in, opts); err != nil {
 		return err
 	}
-	f.cacheInvalidate(pathParent(path))
+	f.cacheInvalidate(path)
 	return nil
 }
 
