@@ -354,18 +354,22 @@ func (f *Fs) cacheInvalidate(pathDir string) {
 	}
 }
 
-func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
-	files, err := f.apiList(ctx, "/"+path)
-	if err != nil {
-		return nil, err
-	}
-	f.cacheInvalidate(path)
+func (f *Fs) cacheUpdate(files []*api.File) {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
 	for _, file := range files {
 		file.Path = pathParse(file.Path)
 		f.cache[file.Path] = file
 	}
+}
+
+func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
+	files, err := f.apiList(ctx, "/"+path)
+	if err != nil {
+		return nil, err
+	}
+	f.cacheInvalidate(path)
+	f.cacheUpdate(files)
 	return files, nil
 }
 
