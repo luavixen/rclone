@@ -176,6 +176,9 @@ func readBody(res *http.Response) ([]byte, error) {
 	return b, nil
 }
 
+// sendRequest sends the given request then reads and decodes the response body
+// into the given result (if not nil). If the result contains an error then it
+// will be returned.
 func (f *Fs) sendRequest(req *http.Request, result api.ResultLike) error {
 	res, err := f.client.Do(req)
 	if err != nil {
@@ -314,6 +317,7 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 			"filenames[]": {path},
 		})
 		if err := f.sendRequest(req, nil); err != nil {
+			// Ignore errors from trying to delete files that don't exist.
 			if api, ok := err.(*api.Error); ok && api.Kind == "missing_files" {
 				return false, nil
 			}
@@ -397,7 +401,8 @@ func (f *Fs) hostDownload(ctx context.Context, path string, opts []fs.OpenOption
 }
 
 // cacheLookup returns the file info for the given path from the file info
-// cache, or nil if that path is not in the cache.
+// cache, or nil if that path is not in the cache. Note that path should have
+// no leading/trailing slashes.
 func (f *Fs) cacheLookup(path string) *api.File {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
@@ -405,7 +410,8 @@ func (f *Fs) cacheLookup(path string) *api.File {
 }
 
 // cacheInvalidate removes all file info cache entries that are children
-// (including indirect children) of the given pathDir.
+// (including indirect children) of the given pathDir. Note that pathDir should
+// have no leading/trailing slashes.
 func (f *Fs) cacheInvalidate(pathDir string) {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
@@ -434,6 +440,8 @@ func (f *Fs) cacheUpdate(files []*api.File) {
 	}
 }
 
+// performList lists files by communicating with the API and updates the cache.
+// Note that path should have no leading/trailing slashes.
 func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
 	files, err := f.apiList(ctx, "/"+path)
 	if err != nil {
@@ -444,6 +452,8 @@ func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) 
 	return files, nil
 }
 
+// performMkdir creates a new directory by communicating with the API and
+// updates the cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performMkdir(ctx context.Context, path string) error {
 	pathTemp := pathParse(path, "__dummy__.txt")
 	if err := f.apiUpload(ctx, pathTemp, new(emptyReader), nil); err != nil {
@@ -456,6 +466,9 @@ func (f *Fs) performMkdir(ctx context.Context, path string) error {
 	return nil
 }
 
+// performRename renames a file by communicating with the API and updates the
+// cache. Note that pathOld and pathNew should have no leading/trailing
+// slashes.
 func (f *Fs) performRename(ctx context.Context, pathOld, pathNew string) error {
 	if err := f.apiRename(ctx, pathOld, pathNew); err != nil {
 		return err
@@ -469,6 +482,8 @@ func (f *Fs) performRename(ctx context.Context, pathOld, pathNew string) error {
 	return nil
 }
 
+// performDelete deletes a file by communicating with the API and updates the
+// cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performDelete(ctx context.Context, path string) error {
 	if err := f.apiDelete(ctx, path); err != nil {
 		return err
@@ -477,6 +492,9 @@ func (f *Fs) performDelete(ctx context.Context, path string) error {
 	return nil
 }
 
+// performUpload uploads (by creating or updating) a file by communicating with
+// the API and updates the cache. Note that path should have no
+// leading/trailing slashes.
 func (f *Fs) performUpload(ctx context.Context, path string, in io.Reader, opts []fs.OpenOption) error {
 	if err := f.apiUpload(ctx, path, in, opts); err != nil {
 		return err
@@ -485,6 +503,9 @@ func (f *Fs) performUpload(ctx context.Context, path string, in io.Reader, opts 
 	return nil
 }
 
+// findFile looks up the file info for the given path. It first checks the
+// cache, then requests an updated file listing from the API. Note that path
+// should have no leading/trailing slashes.
 func (f *Fs) findFile(ctx context.Context, path string) (*api.File, error) {
 	if path == "" {
 		return nil, fs.ErrorIsDir
@@ -504,6 +525,8 @@ func (f *Fs) findFile(ctx context.Context, path string) (*api.File, error) {
 	return nil, fs.ErrorObjectNotFound
 }
 
+// findObject looks up an object for the given path. Note that path should have
+// no leading/trailing slashes.
 func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
 	file, err := f.findFile(ctx, path)
 	if err != nil {
@@ -637,6 +660,9 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 			return nil, err
 		}
 		f.auth = authBasic(user, pass)
+		// Since it is much faster to use API keys than usernames/passwords we
+		// generate and use a new API key instead of sticking with basic
+		// authentication.
 		key, err := f.apiKey(ctx)
 		if err != nil {
 			return nil, err
@@ -711,12 +737,16 @@ func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 
 	entries := make(fs.DirEntries, 0)
 	for _, file := range files {
+		// Sanity checks incase the API decides to give us files that are not
+		// direct children the directory we specified. This can happen eg. if
+		// no "path" param is specified.
 		if pathParent(file.Path) != path {
 			continue
 		}
 		if strings.ContainsRune(pathRelative(file.Path, path), '/') {
 			continue
 		}
+
 		var entry fs.DirEntry
 		if file.IsDirectory {
 			entry = fs.NewDir(pathRelative(file.Path, pathRoot), time.Time(file.Updated))
