@@ -59,8 +59,11 @@ func (*emptyReader) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 
-func shouldRetry(err error) bool {
-	return fserrors.ShouldRetry(err)
+func shouldRetry(ctx context.Context, err error) (bool, error) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	return fserrors.ShouldRetry(err), err
 }
 
 func pathParse(parts ...string) string {
@@ -160,14 +163,14 @@ func (f *Fs) apiKey(ctx context.Context) (string, error) {
 	var err = f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "GET", "https://neocities.org/api/key")
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		res := new(struct {
 			api.Result
 			Key string `json:"api_key"`
 		})
 		if err := f.sendRequest(req, res); err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		out = res.Key
 		return false, nil
@@ -183,14 +186,14 @@ func (f *Fs) apiInfo(ctx context.Context) (*api.Site, error) {
 	var err = f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "GET", "https://neocities.org/api/info")
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		res := new(struct {
 			api.Result
 			Info *api.Site `json:"info"`
 		})
 		if err := f.sendRequest(req, res); err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		out = res.Info
 		return false, nil
@@ -206,7 +209,7 @@ func (f *Fs) apiList(ctx context.Context, path string) ([]*api.File, error) {
 	var err = f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "GET", "https://neocities.org/api/list")
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		withParams(req, url.Values{
 			"path": {path},
@@ -216,7 +219,7 @@ func (f *Fs) apiList(ctx context.Context, path string) ([]*api.File, error) {
 			Files []*api.File `json:"files"`
 		})
 		if err := f.sendRequest(req, res); err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		out = res.Files
 		return false, nil
@@ -231,14 +234,14 @@ func (f *Fs) apiRename(ctx context.Context, pathOld, pathNew string) error {
 	return f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "POST", "https://neocities.org/api/rename")
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		withParams(req, url.Values{
 			"path":     {pathOld},
 			"new_path": {pathNew},
 		})
 		if err := f.sendRequest(req, nil); err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		return false, nil
 	})
@@ -248,7 +251,7 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 	return f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "POST", "https://neocities.org/api/delete")
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		withParams(req, url.Values{
 			"filenames[]": {path},
@@ -257,7 +260,7 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 			if api, ok := err.(*api.Error); ok && api.Kind == "missing_files" {
 				return false, nil
 			}
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		return false, nil
 	})
@@ -314,12 +317,12 @@ func (f *Fs) hostDownload(ctx context.Context, path string, opts []fs.OpenOption
 	var err = f.pacer.Call(func() (bool, error) {
 		req, err := http.NewRequestWithContext(ctx, "GET", f.hostLink(path).String(), nil)
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		withOptions(req, opts)
 		res, err := f.client.Do(req)
 		if err != nil {
-			return shouldRetry(err), err
+			return shouldRetry(ctx, err)
 		}
 		out = res.Body
 		return false, nil
