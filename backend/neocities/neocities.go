@@ -1,3 +1,5 @@
+// Package neocities provides the Neocities rclone backend for managing files
+// on Neocities sites.
 package neocities
 
 import (
@@ -28,12 +30,15 @@ import (
 	"github.com/rclone/rclone/lib/pacer"
 )
 
+// Options represents the authentication configuration used to access a remote
+// Neocities site.
 type Options struct {
 	Username string `config:"username"`
 	Password string `config:"password"`
 	APIKey   string `config:"api_key"`
 }
 
+// Fs represents a connection to a remote Neocities site via the Neocities API.
 type Fs struct {
 	name     string
 	root     string
@@ -41,24 +46,29 @@ type Fs struct {
 	features *fs.Features
 	pacer    *fs.Pacer
 	client   *http.Client
-	auth     string
-	host     *url.URL
-	site     *api.Site
-	cachemu  sync.Mutex
-	cache    map[string]*api.File
+	auth     string               // HTTP "Authorization" header value.
+	host     *url.URL             // URL of the remote host. Eg. "site.neocities.org" or "customdomain.com".
+	site     *api.Site            // Remote site info.
+	cache    map[string]*api.File // Remote file info cache, map of file path -> file info.
+	cachemu  sync.Mutex           // Lock for the file info cache.
 }
 
+// Object represents a file in a remote Neocities site.
 type Object struct {
 	fs   *Fs
 	file *api.File
 }
 
+// emptyReader is an io.Reader that always returns the io.EOF error.
 type emptyReader struct{}
 
+// Read implements io.Reader for emptyReader, always returning (0, io.EOF).
 func (*emptyReader) Read(_ []byte) (int, error) {
 	return 0, io.EOF
 }
 
+// shouldRetry checks if a failed action should be retried based on the current
+// state of the context and the error the failure generated.
 func shouldRetry(ctx context.Context, err error) (bool, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return false, ctxErr
@@ -66,10 +76,24 @@ func shouldRetry(ctx context.Context, err error) (bool, error) {
 	return fserrors.ShouldRetry(err), err
 }
 
+// pathParse joins multiple path elements into a single path and removes
+// leading/trailing slashes.
+//
+//	pathParse("/foo/bar//baz/") == "foo/bar/baz"
+//	pathParse("foo/", "/bar") == "foo/bar"
+//	pathParse("baz", "quux", "x/y/z") == "baz/quux/x/y/z"
+//
 func pathParse(parts ...string) string {
 	return strings.Trim(path.Join(parts...), "/")
 }
 
+// pathParent returns the directory path of pathChild, similar to the dirname
+// UNIX command. Note that pathChild should have no leading/trailing slashes.
+//
+//	pathParent("foo/bar") == "foo"
+//	pathParent("foo") == ""
+//	pathParent("") == ""
+//
 func pathParent(pathChild string) string {
 	if pathChild == "" {
 		return ""
@@ -80,6 +104,14 @@ func pathParent(pathChild string) string {
 	return ""
 }
 
+// pathRelative returns the relative path from pathFrom to pathTo. Note that
+// both pathFrom and pathTo should have no leading/trailing slashes.
+//
+//	pathRelative("foo/bar/baz/quux", "foo/bar") == "baz/quux"
+//	pathRelative("some/path/somewhere", "another/path") == "some/path/somewhere"
+//	pathRelative("foo", "foo") == "foo"
+//	pathRelative("foo/", "foo") == ""
+//
 func pathRelative(pathFrom, pathTo string) string {
 	if pathFrom == "" {
 		return ""
@@ -90,14 +122,23 @@ func pathRelative(pathFrom, pathTo string) string {
 	return strings.TrimPrefix(pathFrom, pathTo+"/")
 }
 
+// authBasic returns a valid HTTP "Authorization" header value for "Basic"
+// authentication with the given username and password as specified by
+// https://datatracker.ietf.org/doc/html/rfc7617. Similar to
+// (*http.Request).SetBasicAuth.
 func authBasic(username, password string) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 }
 
+// authBearer returns a valid HTTP "Authorization" header value for "Bearer"
+// authentication with the given bearer token.
 func authBearer(token string) string {
 	return "Bearer " + token
 }
 
+// withParams sets the body of the given request to the given URL values
+// encoded as "application/x-www-form-urlencoded" as well as setting the
+// "Content-Type" and "Content-Length" headers.
 func withParams(req *http.Request, values url.Values) {
 	if values == nil {
 		return
@@ -108,6 +149,8 @@ func withParams(req *http.Request, values url.Values) {
 	req.Body = ioutil.NopCloser(bytes.NewReader(body))
 }
 
+// withOptions adds the headers provided by the given opions to the given
+// request.
 func withOptions(req *http.Request, opts []fs.OpenOption) {
 	if opts == nil {
 		return
@@ -120,6 +163,8 @@ func withOptions(req *http.Request, opts []fs.OpenOption) {
 	}
 }
 
+// readBody reads the body of the given response, closes it, and then returns
+// the body as a byte array.
 func readBody(res *http.Response) ([]byte, error) {
 	b, err := ioutil.ReadAll(res.Body)
 	if err != nil {
@@ -149,6 +194,8 @@ func (f *Fs) sendRequest(req *http.Request, result api.ResultLike) error {
 	return result.ToError()
 }
 
+// newRequest returns a new request with the given context, method, and url. It
+// also sets the "Authorization" header for API authentication.
 func (f *Fs) newRequest(ctx context.Context, method string, url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
@@ -158,6 +205,8 @@ func (f *Fs) newRequest(ctx context.Context, method string, url string) (*http.R
 	return req, nil
 }
 
+// apiKey calls the https://neocities.org/api/key API method and returns the
+// generated API key string.
 func (f *Fs) apiKey(ctx context.Context) (string, error) {
 	var out string
 	var err = f.pacer.Call(func() (bool, error) {
@@ -181,6 +230,8 @@ func (f *Fs) apiKey(ctx context.Context) (string, error) {
 	return out, nil
 }
 
+// apiInfo calls the https://neocities.org/api/info API method and returns the
+// site info object.
 func (f *Fs) apiInfo(ctx context.Context) (*api.Site, error) {
 	var out *api.Site
 	var err = f.pacer.Call(func() (bool, error) {
@@ -204,6 +255,8 @@ func (f *Fs) apiInfo(ctx context.Context) (*api.Site, error) {
 	return out, nil
 }
 
+// apiInfo calls the https://neocities.org/api/list API method with the
+// given path and returns the list of files.
 func (f *Fs) apiList(ctx context.Context, path string) ([]*api.File, error) {
 	var out []*api.File
 	var err = f.pacer.Call(func() (bool, error) {
@@ -230,6 +283,8 @@ func (f *Fs) apiList(ctx context.Context, path string) ([]*api.File, error) {
 	return out, nil
 }
 
+// apiRename calls the https://neocities.org/api/rename API method with the
+// given old and new paths.
 func (f *Fs) apiRename(ctx context.Context, pathOld, pathNew string) error {
 	return f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "POST", "https://neocities.org/api/rename")
@@ -247,6 +302,8 @@ func (f *Fs) apiRename(ctx context.Context, pathOld, pathNew string) error {
 	})
 }
 
+// apiDelete calls the https://neocities.org/api/delete API method with the
+// given path.
 func (f *Fs) apiDelete(ctx context.Context, path string) error {
 	return f.pacer.Call(func() (bool, error) {
 		req, err := f.newRequest(ctx, "POST", "https://neocities.org/api/delete")
@@ -266,6 +323,9 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 	})
 }
 
+// apiUpload calls the https://neocities.org/api/upload API method with the
+// given path and headers from the given options, then uploads the data from
+// the given io.Reader.
 func (f *Fs) apiUpload(ctx context.Context, path string, in io.Reader, opts []fs.OpenOption) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -306,12 +366,15 @@ func (f *Fs) apiUpload(ctx context.Context, path string, in io.Reader, opts []fs
 	return f.sendRequest(req, nil)
 }
 
+// hostLink returns the URL of a given remote file path.
 func (f *Fs) hostLink(path string) *url.URL {
 	link := *f.host
 	link.Path = path
 	return &link
 }
 
+// hostDownload downloads the given remote file specified by path with the
+// headers from the given options.
 func (f *Fs) hostDownload(ctx context.Context, path string, opts []fs.OpenOption) (io.ReadCloser, error) {
 	var out io.ReadCloser
 	var err = f.pacer.Call(func() (bool, error) {
@@ -333,12 +396,16 @@ func (f *Fs) hostDownload(ctx context.Context, path string, opts []fs.OpenOption
 	return out, nil
 }
 
+// cacheLookup returns the file info for the given path from the file info
+// cache, or nil if that path is not in the cache.
 func (f *Fs) cacheLookup(path string) *api.File {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
 	return f.cache[path]
 }
 
+// cacheInvalidate removes all file info cache entries that are children
+// (including indirect children) of the given pathDir.
 func (f *Fs) cacheInvalidate(pathDir string) {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
@@ -357,6 +424,7 @@ func (f *Fs) cacheInvalidate(pathDir string) {
 	}
 }
 
+// cacheUpdate adds all the given files to the file info cache.
 func (f *Fs) cacheUpdate(files []*api.File) {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
@@ -612,6 +680,12 @@ func (f *Fs) Precision() time.Duration {
 }
 
 func (f *Fs) Hashes() hash.Set {
+	//
+	// Broken due to bug with the Neocities API, see this pull request:
+	// https://github.com/neocities/neocities/pull/385
+	//
+	//	return hash.Set(hash.SHA1)
+	//
 	return hash.Set(hash.None)
 }
 
@@ -741,6 +815,18 @@ func (o *Object) Storable() bool {
 }
 
 func (o *Object) Hash(ctx context.Context, ty hash.Type) (string, error) {
+	//
+	// Broken due to bug with the Neocities API, see this pull request:
+	// https://github.com/neocities/neocities/pull/385
+	//
+	//	if o.file.Sha1Hash == "" {
+	//		return "", hash.ErrUnsupported
+	//	}
+	//	if o.file.IsDirectory {
+	//		return "", fs.ErrorIsDir
+	//	}
+	//	return o.file.Sha1Hash, nil
+	//
 	return "", hash.ErrUnsupported
 }
 
