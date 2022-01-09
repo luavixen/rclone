@@ -671,15 +671,15 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 		return nil, err
 	}
 
-	if site.Domain != "" {
+	if site.Domain == "" {
 		f.host = &url.URL{
 			Scheme: "https",
-			Host:   site.Domain,
+			Host:   site.Name + ".neocities.org",
 		}
 	} else {
 		f.host = &url.URL{
 			Scheme: "https",
-			Host:   site.Name + ".neocities.org",
+			Host:   site.Domain,
 		}
 	}
 
