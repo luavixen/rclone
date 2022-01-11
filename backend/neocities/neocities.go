@@ -511,6 +511,9 @@ func (f *Fs) findFile(ctx context.Context, path string) (*api.File, error) {
 	}
 	for _, file := range files {
 		if file.Path == path {
+			if file.IsDirectory {
+				return nil, fs.ErrorIsDir
+			}
 			return file, nil
 		}
 	}
@@ -523,9 +526,6 @@ func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
 	file, err := f.findFile(ctx, path)
 	if err != nil {
 		return nil, err
-	}
-	if file.IsDirectory {
-		return nil, fs.ErrorIsDir
 	}
 	return &Object{f, file}, nil
 }
@@ -638,6 +638,7 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 		Move:                    f.Move,
 		DirMove:                 f.DirMove,
 		PublicLink:              f.PublicLink,
+		PutStream:               f.PutStream,
 		UserInfo:                f.UserInfo,
 	}
 
@@ -784,6 +785,11 @@ func (f *Fs) Put(ctx context.Context, data io.Reader, src fs.ObjectInfo, opts ..
 	return f.findObject(ctx, path)
 }
 
+// PutStream uploads an object to the given path with the given data and options.
+func (f *Fs) PutStream(ctx context.Context, in io.Reader, src fs.ObjectInfo, options ...fs.OpenOption) (fs.Object, error) {
+	return f.Put(ctx, in, src, options...)
+}
+
 // Move renames an object, potentially moving it to a different directory.
 func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object, error) {
 	srcObj, ok := src.(*Object)
@@ -917,10 +923,28 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 	if err != nil {
 		return err
 	}
-	file, err := o.fs.findFile(ctx, o.file.Path)
-	if err != nil {
-		return err
+
+	srcSize := src.Size()
+	srcModTime := src.ModTime(ctx)
+
+	// If the size was provided then don't bother potentially re-listing the
+	// entire parent directory just to update the size and mod time, just copy
+	// it over from the provided src object. Note that once the previously
+	// mentioned hashing bug is fixed then this code should switch back to
+	// always using findFile so that the hashes can be compared accurately for
+	// data integrity.
+	if srcSize >= 0 {
+		file := *o.file
+		file.Size = srcSize
+		file.Updated = api.Timestamp(srcModTime)
+		o.file = &file
+	} else {
+		file, err := o.fs.findFile(ctx, o.file.Path)
+		if err != nil {
+			return err
+		}
+		o.file = file
 	}
-	o.file = file
+
 	return nil
 }
