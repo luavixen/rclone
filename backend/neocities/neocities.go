@@ -746,14 +746,15 @@ func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 	for _, file := range files {
 		// Sanity checks incase the API decides to give us files that are not
 		// direct children the directory we specified. This can happen eg. if
-		// no "path" param is specified.
+		// no "path" param is specified. Currently these checks are disabled.
+		/*
 		if pathParent(file.Path) != path {
 			continue
 		}
 		if strings.ContainsRune(pathRelative(file.Path, path), '/') {
 			continue
 		}
-
+		*/
 		var entry fs.DirEntry
 		if file.IsDirectory {
 			entry = fs.NewDir(pathRelative(file.Path, pathRoot), time.Time(file.Updated))
@@ -762,7 +763,6 @@ func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 		}
 		entries = append(entries, entry)
 	}
-
 	return entries, nil
 }
 
