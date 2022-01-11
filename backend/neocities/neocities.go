@@ -433,11 +433,11 @@ func (f *Fs) cacheUpdate(files []*api.File) {
 // performList lists files by communicating with the API and updates the cache.
 // Note that path should have no leading/trailing slashes.
 func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
+	f.cacheInvalidate(path)
 	files, err := f.apiList(ctx, "/"+path)
 	if err != nil {
 		return nil, err
 	}
-	f.cacheInvalidate(path)
 	f.cacheUpdate(files)
 	return files, nil
 }
@@ -445,6 +445,7 @@ func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) 
 // performMkdir creates a new directory by communicating with the API and
 // updates the cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performMkdir(ctx context.Context, path string) error {
+	f.cacheInvalidate(path)
 	// Since the Neocities API doesn't actually provide a way to create
 	// directories, we have to use a workaround. Luckly, if you upload a file
 	// into a directory that does not exist, the API will also create that
@@ -458,7 +459,6 @@ func (f *Fs) performMkdir(ctx context.Context, path string) error {
 	if err := f.apiDelete(ctx, pathTemp); err != nil {
 		return err
 	}
-	f.cacheInvalidate(path)
 	return nil
 }
 
@@ -466,21 +466,21 @@ func (f *Fs) performMkdir(ctx context.Context, path string) error {
 // cache. Note that pathOld and pathNew should have no leading/trailing
 // slashes.
 func (f *Fs) performRename(ctx context.Context, pathOld, pathNew string) error {
+	f.cacheInvalidate(pathOld)
+	f.cacheInvalidate(pathNew)
 	if err := f.apiRename(ctx, pathOld, pathNew); err != nil {
 		return err
 	}
-	f.cacheInvalidate(pathOld)
-	f.cacheInvalidate(pathNew)
 	return nil
 }
 
 // performDelete deletes a file by communicating with the API and updates the
 // cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performDelete(ctx context.Context, path string) error {
+	f.cacheInvalidate(path)
 	if err := f.apiDelete(ctx, path); err != nil {
 		return err
 	}
-	f.cacheInvalidate(path)
 	return nil
 }
 
@@ -488,10 +488,10 @@ func (f *Fs) performDelete(ctx context.Context, path string) error {
 // the API and updates the cache. Note that path should have no
 // leading/trailing slashes.
 func (f *Fs) performUpload(ctx context.Context, path string, in io.Reader, opts []fs.OpenOption) error {
+	f.cacheInvalidate(path)
 	if err := f.apiUpload(ctx, path, in, opts); err != nil {
 		return err
 	}
-	f.cacheInvalidate(path)
 	return nil
 }
 
