@@ -311,10 +311,6 @@ func (f *Fs) apiDelete(ctx context.Context, path string) error {
 			"filenames[]": {path},
 		})
 		if err := f.sendRequest(req, nil); err != nil {
-			// Ignore errors from trying to delete files that don't exist.
-			if api, ok := err.(*api.Error); ok && api.Kind == "missing_files" {
-				return false, nil
-			}
 			return shouldRetry(ctx, err)
 		}
 		return false, nil
@@ -907,7 +903,12 @@ func (o *Object) Open(ctx context.Context, opts ...fs.OpenOption) (io.ReadCloser
 
 // Remove deletes this object.
 func (o *Object) Remove(ctx context.Context) error {
-	return o.fs.performDelete(ctx, o.file.Path)
+	err := o.fs.performDelete(ctx, o.file.Path)
+	// Ignore errors from trying to delete an object that no longer exists.
+	if apiErr, ok := err.(*api.Error); ok && apiErr != nil && apiErr.Kind == "missing_files" {
+		return nil
+	}
+	return err
 }
 
 // Update overwrites this object with the given data and options.
