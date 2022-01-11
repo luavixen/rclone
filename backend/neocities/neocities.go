@@ -78,22 +78,18 @@ func shouldRetry(ctx context.Context, err error) (bool, error) {
 
 // pathParse joins multiple path elements into a single path and removes
 // leading/trailing slashes.
-//
 //	pathParse("/foo/bar//baz/") == "foo/bar/baz"
 //	pathParse("foo/", "/bar") == "foo/bar"
 //	pathParse("baz", "quux", "x/y/z") == "baz/quux/x/y/z"
-//
 func pathParse(parts ...string) string {
 	return strings.Trim(path.Join(parts...), "/")
 }
 
 // pathParent returns the directory path of pathChild, similar to the dirname
 // UNIX command. Note that pathChild should have no leading/trailing slashes.
-//
 //	pathParent("foo/bar") == "foo"
 //	pathParent("foo") == ""
 //	pathParent("") == ""
-//
 func pathParent(pathChild string) string {
 	if pathChild == "" {
 		return ""
@@ -106,12 +102,10 @@ func pathParent(pathChild string) string {
 
 // pathRelative returns the relative path from pathFrom to pathTo. Note that
 // both pathFrom and pathTo should have no leading/trailing slashes.
-//
 //	pathRelative("foo/bar/baz/quux", "foo/bar") == "baz/quux"
 //	pathRelative("some/path/somewhere", "another/path") == "some/path/somewhere"
 //	pathRelative("foo", "foo") == "foo"
 //	pathRelative("foo/", "foo") == ""
-//
 func pathRelative(pathFrom, pathTo string) string {
 	if pathFrom == "" {
 		return ""
@@ -455,6 +449,12 @@ func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) 
 // performMkdir creates a new directory by communicating with the API and
 // updates the cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performMkdir(ctx context.Context, path string) error {
+	// Since the Neocities API doesn't actually provide a way to create
+	// directories, we have to use a workaround. Luckly, if you upload a file
+	// into a directory that does not exist, the API will also create that
+	// directory. We use that functionality here to create an empty directory by
+	// first uploading a dummy file into the directory we want to create, then
+	// deleting the dummy file, leaving us with a new empty directory!
 	pathTemp := pathParse(path, "__dummy__.txt")
 	if err := f.apiUpload(ctx, pathTemp, new(emptyReader), nil); err != nil {
 		return err
@@ -534,6 +534,7 @@ func (f *Fs) findObject(ctx context.Context, path string) (fs.Object, error) {
 	return &Object{f, file}, nil
 }
 
+// init registers the Neocities backend with the file system interface.
 func init() {
 	fs.Register(&fs.RegInfo{
 		Name:        "neocities",
@@ -563,6 +564,8 @@ func init() {
 	})
 }
 
+// Config generates the next state of the configuration wizard for the
+// Neocities backend.
 func Config(ctx context.Context, name string, m configmap.Mapper, config fs.ConfigIn) (*fs.ConfigOut, error) {
 	switch config.State {
 	case "":
@@ -618,6 +621,8 @@ func Config(ctx context.Context, name string, m configmap.Mapper, config fs.Conf
 	return nil, fmt.Errorf("unknown state %q", config.State)
 }
 
+// NewFs creates a new instance of the Neocities backend. This new remote will
+// use the given name, root, and config.
 func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, error) {
 	f := &Fs{
 		name:   name,
@@ -688,40 +693,49 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 	return f, nil
 }
 
+// Name returns the name of the remote as given to NewFs.
 func (f *Fs) Name() string {
 	return f.name
 }
 
+// Root returns the root of the remote as given to NewFs.
 func (f *Fs) Root() string {
 	return f.root
 }
 
+// String returns a human readable description of this Fs.
 func (f *Fs) String() string {
 	return fmt.Sprintf("neocities root '%s'", f.root)
 }
 
-func (f *Fs) Precision() time.Duration {
-	return time.Second
-}
-
-func (f *Fs) Hashes() hash.Set {
-	//
-	// Broken due to bug with the Neocities API, see this pull request:
-	// https://github.com/neocities/neocities/pull/385
-	//
-	//	return hash.Set(hash.SHA1)
-	//
-	return hash.Set(hash.None)
-}
-
+// Features returns the optional features of this FS.
 func (f *Fs) Features() *fs.Features {
 	return f.features
 }
 
+// Precision returns the precision of timestamps provided by this Fs.
+func (f *Fs) Precision() time.Duration {
+	return time.Second
+}
+
+// Hashes returns a set of this Fs' supported hashing algorithms. Currently
+// unsupported.
+func (f *Fs) Hashes() hash.Set {
+	// Broken due to bug with the Neocities API, see this pull request:
+	// https://github.com/neocities/neocities/pull/385
+	/*
+	return hash.Set(hash.SHA1)
+	*/
+	return hash.Set(hash.None)
+}
+
+// NewObject finds and creates a new object for the given path.
 func (f *Fs) NewObject(ctx context.Context, remote string) (fs.Object, error) {
 	return f.findObject(ctx, pathParse(f.root, remote))
 }
 
+// List returns a list of objects and subdirectories in the directory at the
+// given path.
 func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 	pathRoot := pathParse(f.root)
 	path := pathParse(pathRoot, remote)
@@ -755,14 +769,17 @@ func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 	return entries, nil
 }
 
+// Mkdir creates a directory at the given path.
 func (f *Fs) Mkdir(ctx context.Context, remote string) error {
 	return f.performMkdir(ctx, pathParse(f.root, remote))
 }
 
+// Mkdir deletes the directory at the given path.
 func (f *Fs) Rmdir(ctx context.Context, remote string) error {
 	return f.performDelete(ctx, pathParse(f.root, remote))
 }
 
+// Put uploads an object to the given path with the given data and options.
 func (f *Fs) Put(ctx context.Context, data io.Reader, src fs.ObjectInfo, opts ...fs.OpenOption) (fs.Object, error) {
 	path := pathParse(f.root, src.Remote())
 	if err := f.performUpload(ctx, path, data, opts); err != nil {
@@ -771,6 +788,7 @@ func (f *Fs) Put(ctx context.Context, data io.Reader, src fs.ObjectInfo, opts ..
 	return f.findObject(ctx, path)
 }
 
+// Move renames an object, potentially moving it to a different directory.
 func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object, error) {
 	srcObj, ok := src.(*Object)
 	if !ok || srcObj == nil {
@@ -789,6 +807,8 @@ func (f *Fs) Move(ctx context.Context, src fs.Object, remote string) (fs.Object,
 	return f.findObject(ctx, pathDst)
 }
 
+// DirMove renames a directory, potentially moving it to a different parent
+// directory.
 func (f *Fs) DirMove(ctx context.Context, src fs.Fs, remoteSrc, remoteDst string) error {
 	dstFs := f
 	srcFs, ok := src.(*Fs)
@@ -804,10 +824,20 @@ func (f *Fs) DirMove(ctx context.Context, src fs.Fs, remoteSrc, remoteDst string
 	)
 }
 
+// PublicLink gets the URL of a remote object (provided by the given path).
+// Note that the expire and unlink arguments are ignored, files on Neocities
+// are always public on the web.
 func (f *Fs) PublicLink(ctx context.Context, remote string, expire fs.Duration, unlink bool) (string, error) {
 	return f.hostLink(pathParse(f.root, remote)).String(), nil
 }
 
+// UserInfo returns some basic information about the current user and their
+// site. See the following example:
+//	{
+//		"site": "mycoolsite",
+//		"tags": "super, awesome, cool, nice",
+//		"domain": "mycoolsite.neocities.org"
+//	}
 func (f *Fs) UserInfo(ctx context.Context) (map[string]string, error) {
 	return map[string]string{
 		"site":   f.site.Name,
@@ -816,14 +846,17 @@ func (f *Fs) UserInfo(ctx context.Context) (map[string]string, error) {
 	}, nil
 }
 
+// Fs returns the parent Fs instance of this object.
 func (o *Object) Fs() fs.Info {
 	return o.fs
 }
 
+// Remote returns the remote path of this object.
 func (o *Object) Remote() string {
 	return pathRelative(o.file.Path, pathParse(o.fs.root))
 }
 
+// String returns a human readable description of this object.
 func (o *Object) String() string {
 	if o == nil {
 		return "<nil>"
@@ -831,46 +864,53 @@ func (o *Object) String() string {
 	return o.Remote()
 }
 
+// ModTime returns the last modified timestamp of this object.
 func (o *Object) ModTime(ctx context.Context) time.Time {
 	return time.Time(o.file.Updated)
 }
 
+// Size returns the size of this object in bytes.
 func (o *Object) Size() int64 {
 	return o.file.Size
 }
 
+// Storable returns true if this object can be stored, false otherwise.
 func (o *Object) Storable() bool {
 	return o.file.IsDirectory
 }
 
+// Hash returns the hash of this object. Currently unsupported.
 func (o *Object) Hash(ctx context.Context, ty hash.Type) (string, error) {
-	//
 	// Broken due to bug with the Neocities API, see this pull request:
 	// https://github.com/neocities/neocities/pull/385
-	//
-	//	if o.file.Sha1Hash == "" {
-	//		return "", hash.ErrUnsupported
-	//	}
-	//	if o.file.IsDirectory {
-	//		return "", fs.ErrorIsDir
-	//	}
-	//	return o.file.Sha1Hash, nil
-	//
+	/*
+	if o.file.Sha1Hash == "" {
+		return "", hash.ErrUnsupported
+	}
+	if o.file.IsDirectory {
+		return "", fs.ErrorIsDir
+	}
+	return o.file.Sha1Hash, nil
+	*/
 	return "", hash.ErrUnsupported
 }
 
+// SetModTime is not supported.
 func (o *Object) SetModTime(ctx context.Context, t time.Time) error {
 	return fs.ErrorCantSetModTime
 }
 
+// Open downloads this object from the remote host.
 func (o *Object) Open(ctx context.Context, opts ...fs.OpenOption) (io.ReadCloser, error) {
 	return o.fs.hostDownload(ctx, o.file.Path, opts)
 }
 
+// Remove deletes this object.
 func (o *Object) Remove(ctx context.Context) error {
 	return o.fs.performDelete(ctx, o.file.Path)
 }
 
+// Update overwrites this object with the given data and options.
 func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, opts ...fs.OpenOption) error {
 	err := o.fs.performUpload(ctx, o.file.Path, in, opts)
 	if err != nil {
