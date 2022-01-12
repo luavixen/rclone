@@ -400,24 +400,26 @@ func (f *Fs) cacheLookup(path string) *api.File {
 }
 
 // cacheInvalidate removes all file info cache entries that are children
-// (including indirect children) of the given pathDir. Note that pathDir should
-// have no leading/trailing slashes.
-func (f *Fs) cacheInvalidate(pathDir string) {
+// (including indirect children) of the given path, including the file info at
+// the given path itself. Note that path should have no leading/trailing
+// slashes.
+func (f *Fs) cacheInvalidate(path string) {
 	f.cachemu.Lock()
 	defer f.cachemu.Unlock()
 	if len(f.cache) == 0 {
 		return
 	}
-	if pathDir == "" {
+	if path == "" {
 		f.cache = make(map[string]*api.File)
 		return
 	}
-	pathPrefix := pathDir + "/"
-	for path := range f.cache {
-		if strings.HasPrefix(path, pathPrefix) {
-			f.cache[path] = nil
+	pathPrefix := path + "/"
+	for pathCached := range f.cache {
+		if strings.HasPrefix(pathCached, pathPrefix) {
+			f.cache[pathCached] = nil
 		}
 	}
+	f.cache[path] = nil
 }
 
 // cacheUpdate adds all the given files to the file info cache.
@@ -433,11 +435,11 @@ func (f *Fs) cacheUpdate(files []*api.File) {
 // performList lists files by communicating with the API and updates the cache.
 // Note that path should have no leading/trailing slashes.
 func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) {
-	f.cacheInvalidate(path)
 	files, err := f.apiList(ctx, "/"+path)
 	if err != nil {
 		return nil, err
 	}
+	f.cacheInvalidate(path)
 	f.cacheUpdate(files)
 	return files, nil
 }
