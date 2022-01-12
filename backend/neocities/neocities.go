@@ -448,12 +448,7 @@ func (f *Fs) performList(ctx context.Context, path string) ([]*api.File, error) 
 // updates the cache. Note that path should have no leading/trailing slashes.
 func (f *Fs) performMkdir(ctx context.Context, path string) error {
 	f.cacheInvalidate(path)
-	// Since the Neocities API doesn't actually provide a way to create
-	// directories, we have to use a workaround. Luckly, if you upload a file
-	// into a directory that does not exist, the API will also create that
-	// directory. We use that functionality here to create an empty directory by
-	// first uploading a dummy file into the directory we want to create, then
-	// deleting the dummy file, leaving us with a new empty directory!
+	// Use a dummy file to create the directory, then delete the dummy file.
 	pathTemp := pathParse(path, "__dummy__.txt")
 	if err := f.apiUpload(ctx, pathTemp, new(emptyReader), nil); err != nil {
 		return err
@@ -661,8 +656,7 @@ func NewFs(ctx context.Context, name, root string, m configmap.Mapper) (fs.Fs, e
 		}
 		f.auth = authBasic(user, pass)
 		// Since it is much faster to use API keys than usernames/passwords we
-		// generate and use a new API key instead of sticking with basic
-		// authentication.
+		// generate and use a new API key.
 		key, err := f.apiKey(ctx)
 		if err != nil {
 			return nil, err
@@ -746,9 +740,9 @@ func (f *Fs) List(ctx context.Context, remote string) (fs.DirEntries, error) {
 
 	entries := make(fs.DirEntries, 0)
 	for _, file := range files {
-		// Sanity checks incase the API decides to give us files that are not
-		// direct children the directory we specified. This can happen eg. if
-		// no "path" param is specified. Currently these checks are disabled.
+		// Sanity check for files that are not direct children of the specified
+		// directory. This can happen eg. if no "path" param is specified.
+		// Currently disabled.
 		/*
 		if pathParent(file.Path) != path {
 			continue
