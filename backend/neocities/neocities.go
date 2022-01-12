@@ -925,28 +925,10 @@ func (o *Object) Update(ctx context.Context, in io.Reader, src fs.ObjectInfo, op
 	if err != nil {
 		return err
 	}
-
-	srcSize := src.Size()
-	srcModTime := src.ModTime(ctx)
-
-	// If the size was provided then don't bother potentially re-listing the
-	// entire parent directory just to update the size and mod time, just copy
-	// it over from the provided src object. Note that once the previously
-	// mentioned hashing bug is fixed then this code should switch back to
-	// always using findFile so that the hashes can be compared accurately for
-	// data integrity.
-	if srcSize >= 0 {
-		file := *o.file
-		file.Size = srcSize
-		file.Updated = api.Timestamp(srcModTime)
-		o.file = &file
-	} else {
-		file, err := o.fs.findFile(ctx, o.file.Path)
-		if err != nil {
-			return err
-		}
-		o.file = file
+	file, err := o.fs.findFile(ctx, o.file.Path)
+	if err != nil {
+		return err
 	}
-
+	o.file = file
 	return nil
 }
