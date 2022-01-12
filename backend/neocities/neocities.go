@@ -880,7 +880,7 @@ func (o *Object) Size() int64 {
 
 // Storable returns true if this object can be stored, false otherwise.
 func (o *Object) Storable() bool {
-	return o.file.IsDirectory
+	return true
 }
 
 // Hash returns the hash of this object. Currently unsupported.
